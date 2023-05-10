@@ -1,0 +1,56 @@
+#!/root/anaconda3/bin/python3
+
+import cx_Oracle as ora
+import pandas as pd
+import os
+import sys
+import datetime
+import time
+import logging
+import logging.config
+from datetime import timedelta
+
+today = datetime.datetime.today()
+yesterday = datetime.datetime.today() - timedelta(days=1)
+datetimeFormat = '%Y-%m-%d %H:%M:%S.%f'
+
+logging.config.fileConfig('/home/eaireports/dailymgmtrpt/config/logger.conf')
+
+# create logger
+logger = logging.getLogger('commonLogger')
+
+dsn = "EPYSRV_EPAY_MON"
+
+sql = """
+select CALLING_SERVICE_NAME, REASON_MSG, count(*) REASON_TYPE
+from EPAYGW.logger
+where REASON_TYPE = 'TECHNICAL'
+and last_update_timestamp >= sysdate - 5/(24*60)
+group by CALLING_SERVICE_NAME, REASON_MSG having count(*) >= 10
+"""
+
+with ora.connect(dsn=dsn) as eaibau_online:
+    df = pd.read_sql(sql, con=eaibau_online)
+
+CALLING_SERVICE_NAME = df.iloc[0]['CALLING_SERVICE_NAME']
+REASON_MSG = df.iloc[0]['REASON_MSG']
+REASON_TYPE = df.iloc[0]['REASON_TYPE']
+
+sms_text = (
+    f"Date : {today.strftime('%m/%d/%Y, %H:%M:%S')}\n"
+    "Technical error\n"
+    f"calling service name {CALLING_SERVICE_NAME}\n"
+    f"REASON_MSG {REASON_MSG}\n"
+    f"REASON_TYPE {REASON_TYPE}\n"
+)
+
+def send_sms(text):
+    url = 'https://172.21.51.124:9000/invoke/sms:httpwrapperservice_epayment'
+    curl = f'curl -X POST -u EAIMAS_SMS:EAIMAS_SMS --data messagestring="{text}" --data From=Epayment -k -globoff {url}'
+    os.system(curl)
+
+debug = 0
+if debug == 0:
+    print(sms_text)
+else:
+    send_sms(sms_text)
